@@ -1,0 +1,9 @@
+version: '3.7'
+
+secrets:
+  auth_keycloak_user:
+    external: true
+  auth_keycloak_password:
+    external: true
+  auth_keycloak_postgres_password:
+    external: true

@@ -1,0 +1,58 @@
+version: '3.7'
+
+services:
+  reverse-proxy:
+    image: traefik:v2.1
+    command: --api.insecure=true --providers.docker --log.level=DEBUG
+    ports:
+      - "80:80"
+      - "81:8080"
+    networks:
+      - default
+      - api
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  svc1:
+    image: containous/whoami
+    ports: 
+      - target: 80
+    networks:
+      - api
+    labels:
+      - "traefik.http.routers.svc1.rule=PathPrefix(`/svc1/`)"
+      - "traefik.http.middlewares.svc1-stripprefix.stripprefix.prefixes=/svc1"
+      - "traefik.http.services.svc1.loadbalancer.server.port=80"
+      # Each of these three will fail fail - meaning any combination of middleware fails
+      # - "traefik.http.routers.svc1.middlewares=svc1-stripprefix, svc1-forwardauth-address, svc1-forwardauth-trust, svc1-forwardauth-headers"
+      # - "traefik.http.routers.svc1.middlewares=svc1-stripprefix, svc1-forwardauth-address, svc1-forwardauth-headers"
+      # - "traefik.http.routers.svc1.middlewares=svc1-stripprefix, svc1-forwardauth-address, svc1-forwardauth-trust"
+      # But this is fine
+      - "traefik.http.routers.svc1.middlewares=svc1-stripprefix, svc1-forwardauth-address"
+
+      # This alone works fine
+      - "traefik.http.middlewares.svc1-forwardauth-address.forwardauth.address=http://token-validator/verify"
+
+      # But when including 'trustForwardHeader' or 'authResponseHeaders' middleware 
+      #  a 500 response occurs from within Traefik
+      # - "traefik.http.middlewares.svc1-forwardauth-trust.forwardauth.trustForwardHeader=false"
+      # - "traefik.http.middlewares.svc1-forwardauth-headers.forwardauth.authResponseHeaders=X-Forwarded-User"
+
+  # reverse-proxy_1  | time="2020-01-03T05:37:00Z" level=debug msg="Error calling . Cause: Get : unsupported protocol scheme \"\"" middlewareName=svc1-forwardauth-headers@docker middlewareType=ForwardedAuthType
+  # - "traefik.http.routers.svc1.middlewares=svc1-stripprefix, svc1-forwardauth-address, svc1-forwardauth-headers"
+  # - "traefik.http.middlewares.svc1-forwardauth-address.forwardauth.address=http://validator:3000/verify"
+  # - "traefik.http.middlewares.svc1-forwardauth-headers.forwardauth.authResponseHeaders=X-Forwarded-User"
+
+  # reverse-proxy_1  | time="2020-01-03T05:39:45Z" level=debug msg="Error calling . Cause: Get : unsupported protocol scheme \"\"" middlewareName=svc1-forwardauth-trust@docker middlewareType=ForwardedAuthType
+  # - "traefik.http.routers.svc1.middlewares=svc1-stripprefix, svc1-forwardauth-address, svc1-forwardauth-trust"
+  # - "traefik.http.middlewares.svc1-forwardauth-address.forwardauth.address=http://validator:3000/verify"
+  # - "traefik.http.middlewares.svc1-forwardauth-trust.forwardauth.trustForwardHeader=false"
+
+secrets:
+  auth_keycloak_user:
+    file: ./keycloak_user_file.txt
+  auth_keycloak_password:
+    file: ./keycloak_password_file.txt
+  auth_keycloak_postgres_password:
+    file: ./keycloak_postgres_password.txt
+    

@@ -1,0 +1,99 @@
+version: '3.7'
+
+services:
+
+  keycloak:
+    image: jboss/keycloak:6.0.1
+    depends_on:
+      - keycloak-db
+    ports:
+      - target: 8080
+    environment:
+      DB_VENDOR: postgres
+      DB_ADDR: keycloak-db
+      DB_PORT: 5432
+      DB_DATABASE: keycloak
+      DB_USER: keycloak
+      DB_PASSWORD_FILE: /run/secrets/auth_keycloak_postgres_password
+      KEYCLOAK_USER_FILE: /run/secrets/auth_keycloak_user
+      KEYCLOAK_PASSWORD_FILE: /run/secrets/auth_keycloak_password
+      # https://stackoverflow.com/a/47200330/684966
+      PROXY_ADDRESS_FORWARDING: "true"
+    secrets:
+      - auth_keycloak_user
+      - auth_keycloak_password
+      - auth_keycloak_postgres_password
+    networks:
+      - keycloak
+      - api
+    # labels:
+    #   - "traefik.http.routers.auth.rule=PathPrefix(`/auth`)"
+    #   - "traefik.http.services.auth.loadbalancer.server.port=8080"
+    deploy:
+      mode: replicated
+      replicas: 1
+      # labels:
+      #   - "traefik.http.routers.auth.rule=PathPrefix(`/auth`)"
+      #   - "traefik.http.services.auth.loadbalancer.server.port=8080"
+
+  keycloak-db:
+    image: postgres:11.1-alpine
+    ports:
+      - target: 5432
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD_FILE: /run/secrets/auth_keycloak_postgres_password
+    secrets:
+      - auth_keycloak_postgres_password
+    networks:
+      - keycloak
+
+  # docker run -p 389:389 -p 636:636 --name my-openldap-container --detach osixia/openldap:1.4.0
+  openldap:
+    build:
+      context: ./openldap
+    image: localhost:5000/openldap
+    networks:
+      - keycloak
+    volumes:
+      - type: bind
+        source: /data/iam-poc/openldap/db
+        target: /var/lib/ldap
+      - type: bind
+        source: /data/iam-poc/openldap/config
+        target: /etc/ldap/slapd.d
+    environment:
+      LDAP_ORGANISATION: "WordpressMultisite"
+      LDAP_DOMAIN: "wpms.test"
+      LDAP_ADMIN_PASSWORD: "password"
+      LDAP_BASE_DN: "dc=wpms,dc=test"
+
+# docker run -p 6443:443 \
+        # --env PHPLDAPADMIN_LDAP_HOSTS=ldap.example.com \
+        # --detach osixia/phpldapadmin:0.9.0
+  phpldapadmin:
+    image: osixia/phpldapadmin:0.9.0
+    networks:
+      - keycloak
+    ports:
+      - target: 80
+    environment:
+      PHPLDAPADMIN_LDAP_HOSTS: openldap
+      PHPLDAPADMIN_HTTPS: 'false'
+
+secrets:
+  auth_keycloak_user:
+    external: true
+  auth_keycloak_password:
+    external: true
+  auth_keycloak_postgres_password:
+    external: true
+
+networks:
+  api:
+    driver: overlay
+    external: true
+  keycloak:
+    driver: overlay
+    external: true
